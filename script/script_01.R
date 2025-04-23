@@ -10,17 +10,80 @@ library(writexl)
 
 # dados do IPCA de 2000 a 2023
 
-ipca_2000_2023 <- tibble::tibble(
+ipca_df <- tibble::tibble(
   ano = 2000:2023,
   ipca = c(5.97, 7.67, 12.53, 9.30, 7.60, 5.69, 3.14, 4.46, 5.90, 4.31,
            5.91, 6.50, 5.84, 5.91, 6.41, 10.67, 6.29, 2.95, 3.75, 4.31,
-           4.52, 10.06, 5.79, 4.62))
+           4.52, 10.06, 5.79, 4.62)
+)
 
 
-# calculando o deflator do IPCA com base em 2020
 
-ipca_deflator_2020 <- ipca_2000_2023 %>%
-  mutate(deflator_2020 = ipca[ano == 2020] / ipca)
+# FUNÇÕES ----------------------------------------------------------------------
+
+# função para deflacionar valores com base em um ano escolhido
+
+deflate_num <- function(data, year, var_name, var_nominal) {
+  ipca_deflator <- ipca_df %>%
+    mutate(deflator = ipca[ano == {{year}}] / ipca)
+  
+  data %>%
+    left_join(ipca_deflator, by = "ano") %>%
+    mutate("{var_name}" := .data[[var_nominal]] * .data[["deflator"]]) %>%
+    select(-ipca, -deflator)
+}
+
+
+# função para calcular valores per capita ou por mil habitantes
+
+var_pc_pm <- function(data, var_base, por_mil = FALSE) {
+  nome_var <- paste0(var_base, ifelse(por_mil, "_por_mil", "_pc"))
+  
+  data %>%
+    left_join(qt_pop, by = c("cod_mun", "ano")) %>%
+    mutate(
+      "{nome_var}" := if (por_mil) 
+          (.data[[var_base]] * 1000) / qt_pop 
+        else 
+          .data[[var_base]] / qt_pop
+    ) %>%
+    rename(nome_mun = nome_mun.x) %>%
+    select(-nome_mun.y) %>%
+    filter(!is.na(qt_pop)) %>%
+    arrange(cod_mun) %>%
+    select(-qt_pop)
+}
+
+
+# função para interpolar para anos faltantes
+
+interpolate_num <- function(data, var_name, year_range) {
+  data %>%
+    complete(cod_mun, ano = full_seq(year_range, 1)) %>%
+    group_by(cod_mun) %>%
+    arrange(ano) %>%
+    mutate(
+      nome_mun = first(na.omit(nome_mun)),
+      "{var_name}" := if (sum(!is.na(.data[[var_name]])) >= 2) {
+        approx(x = ano, y = .data[[var_name]], xout = ano, rule = 2)$y
+      } else {
+        .data[[var_name]]
+      }
+    ) %>%
+    ungroup() %>%
+    relocate(cod_mun, .after = ano)
+}
+
+
+# função para limpar o número e transformar em numérico
+
+clear_num <- function(x) {
+  x %>%
+    stringr::str_replace_all("[^0-9,\\.]", "") %>%
+    stringr::str_replace_all("\\.", "") %>%
+    stringr::str_replace(",", ".") %>%
+    as.numeric()
+}
 
 
 
@@ -47,32 +110,7 @@ pib_2002_2009 <- pib_x2002_x2009 %>%
     cod_mun = str_sub(as.character(cod_mun), 1, 6),
     nome_mun = str_to_upper(nome_mun), 
     pib_nom = pib_nom * 1000
-  )
-  
-  
-# tratamento dos dados auxiliares do PIB 2002 a 2009 
-
-pib_aux_01 <- pib_x2002_x2009 %>%
-  select(
-    ano, 
-    codigo_do_municipio, 
-    nome_do_municipio,
-    codigo_da_grande_regiao,
-    nome_da_grande_regiao, 
-    codigo_da_unidade_da_federacao,
-    nome_da_unidade_da_federacao
-  ) %>% 
-  arrange(
-    desc(ano)
-  ) %>% 
-  rename(
-    cod_mun = codigo_do_municipio,
-    nome_mun = nome_do_municipio,
-    cod_gr_ibge = codigo_da_grande_regiao,
-    nome_gr = nome_da_grande_regiao,
-    cod_uf_ibge = codigo_da_unidade_da_federacao,
-    nome_uf = nome_da_unidade_da_federacao
-  )
+  ) 
 
 
 # tratamento dos dados do PIB de 2010 a 2021
@@ -96,6 +134,31 @@ pib_2010_2021 <- pib_x2010_x2021 %>%
     cod_mun = str_sub(as.character(cod_mun), 1, 6),
     nome_mun = str_to_upper(nome_mun), 
     pib_nom = pib_nom * 1000
+  )
+
+
+# tratamento dos dados auxiliares do PIB 2002 a 2009 
+
+pib_aux_01 <- pib_x2002_x2009 %>%
+  select(
+    ano, 
+    codigo_do_municipio, 
+    nome_do_municipio,
+    codigo_da_grande_regiao,
+    nome_da_grande_regiao, 
+    codigo_da_unidade_da_federacao,
+    nome_da_unidade_da_federacao
+  ) %>% 
+  arrange(
+    desc(ano)
+  ) %>% 
+  rename(
+    cod_mun = codigo_do_municipio,
+    nome_mun = nome_do_municipio,
+    cod_gr_ibge = codigo_da_grande_regiao,
+    nome_gr = nome_da_grande_regiao,
+    cod_uf_ibge = codigo_da_unidade_da_federacao,
+    nome_uf = nome_da_unidade_da_federacao
   )
 
 
@@ -126,28 +189,18 @@ pib_aux_02 <- pib_x2010_x2021 %>%
 
 # juntando os dados do PIB de 2002 a 2021
 
-pib_2002_2021 <- bind_rows(pib_2002_2009, pib_2010_2021)
-
-
-# colocando a preços constantes de 2020
-
-pib_const_2020 <- pib_2002_2021 %>%
-  left_join(ipca_deflator_2020, by = "ano") %>%
-  mutate(pib_nom_2020 = pib_nom * deflator_2020) %>% 
-  select(-ipca, -deflator_2020)
-
-
-# calculando o PIB per capita a preços constantes de 2020, de 2002 a 2021
-
-pib_2002_2021_pc_2020 <- pib_const_2020 %>% 
-  left_join(qt_pop, by = c("cod_mun", "ano")) %>% 
-  mutate(
-    pib_nom_pc = pib_nom_2020 / qt_pop
-  ) %>% 
-  rename(nome_mun = nome_mun.x) %>% 
-  select(-nome_mun.y) %>% 
-  filter(!is.na(qt_pop)) %>% 
+pib <- bind_rows(pib_2002_2009, pib_2010_2021) %>% 
   arrange(cod_mun)
+
+
+# colocando a preços constantes de 2019
+
+pib <- deflate_2019(pib, 2019, "pib_real_2019", "pib_nom")
+
+
+# calculando o PIB per capita a preços constantes de 2019
+
+pib <- var_pc_pm(pib, "pib_real_2019")
 
 
 # juntando os dados auxiliares do PIB de 2002 a 2021
@@ -231,19 +284,7 @@ urban_1991_2022 <- bind_rows(urban_1991_2000_2010, urban_2022)
 
 # interpolando para os anos faltantes
 
-urban_int <- urban_1991_2022 %>%
-  complete(cod_mun, ano = full_seq(1991:2022, 1)) %>%
-  group_by(cod_mun) %>%
-  arrange(ano) %>%
-  mutate(
-    nome_mun = first(na.omit(nome_mun)),
-    tx_urban = if (sum(!is.na(tx_urban)) >= 2) {
-      approx(x = ano, y = tx_urban, xout = ano, rule = 2)$y
-    } else {
-      tx_urban
-    }
-  ) %>%
-  ungroup()
+urban <- interpolate_num(urban_1991_2022, "tx_urban", 1991:2022)
 
 
 # carregamento dos dados para o Excel
@@ -286,19 +327,7 @@ analf_1991_2022 <- analf_x1991_x2022 %>%
 
 # interpolando para os anos faltantes
 
-analf_int <- analf_1991_2022 %>%
-  complete(cod_mun, ano = full_seq(1991:2022, 1)) %>%
-  group_by(cod_mun) %>%
-  arrange(ano) %>%
-  mutate(
-    nome_mun = first(na.omit(nome_mun)),
-    tx_analf = if (sum(!is.na(tx_analf)) >= 2) {
-      approx(x = ano, y = tx_analf, xout = ano, rule = 2)$y
-    } else {
-      tx_analf
-    }
-  ) %>%
-  ungroup()
+analf <- interpolate_num(analf_1991_2022, "tx_analf", 1991:2022)
 
 
 # carregamento dos dados para o Excel
@@ -393,19 +422,7 @@ agua_2000_2010_2022 <- bind_rows(agua_2000, agua_2010, agua_2022)
 
 # interpolando para os anos faltantes
 
-agua_int <- agua_2000_2010_2022 %>%
-  complete(cod_mun, ano = full_seq(2000:2022, 1)) %>%
-  group_by(cod_mun) %>%
-  arrange(ano) %>%
-  mutate(
-    nome_mun = first(na.omit(nome_mun)),
-    agua = if (sum(!is.na(agua)) >= 2) {
-      approx(x = ano, y = agua, xout = ano, rule = 2)$y
-    } else {
-      agua
-    }
-  ) %>%
-  ungroup()
+agua  <- interpolate_num(agua_2000_2010_2022, "agua", 2000:2022)
 
 
 # carregamento dos dados para o Excel
@@ -498,19 +515,7 @@ esgoto_2000_2010_2022 <- bind_rows(esgoto_2000, esgoto_2010, esgoto_2022)
 
 # interpolando para os anos faltantes
 
-esgoto_int <- esgoto_2000_2010_2022 %>%
-  complete(cod_mun, ano = full_seq(2000:2022, 1)) %>%
-  group_by(cod_mun) %>%
-  arrange(ano) %>%
-  mutate(
-    nome_mun = first(na.omit(nome_mun)),
-    esgoto = if (sum(!is.na(esgoto)) >= 2) {
-      approx(x = ano, y = esgoto, xout = ano, rule = 2)$y
-    } else {
-      esgoto
-    }
-  ) %>%
-  ungroup()
+esgoto <- interpolate_num(esgoto_2000_2010_2022, "esgoto", 2000:2022)
 
 
 
@@ -540,25 +545,23 @@ bf_2004_2023 <- bf_x2004_x2023 %>%
   arrange(cod_mun)
 
 
-# calculando bf a preços constantes de 2020
+# calculando bf a preços constantes de 2019
 
-bf_const_2020 <- bf_2004_2023 %>%
-  left_join(ipca_deflator_2020, by = "ano") %>%
-  mutate(bf_2020 = bf * deflator_2020) %>% 
-  select(-ipca, -deflator_2020)
+bf <- deflate_num(bf_2004_2023, 2019, "bf_2019", "bf")
 
 
-# calculando bf per capita a preços constantes de 2020
+# calculando bf per capita a preços constantes de 2019
 
-bf_2004_2023_pc_2020 <- bf_const_2020 %>% 
+bf <- bf %>% 
   left_join(qt_pop, by = c("cod_mun", "ano")) %>% 
   mutate(
-    bf_pc_2020 = (bf_2020 * 1000) / qt_pop
+    bf_2019_pc = (bf_2019 * 1000) / qt_pop
   ) %>% 
   rename(nome_mun = nome_mun.x) %>% 
   select(-nome_mun.y) %>% 
   filter(!is.na(qt_pop)) %>% 
-  arrange(cod_mun)
+  arrange(cod_mun) %>% 
+  select(-qt_pop)
 
 
 
@@ -598,13 +601,7 @@ con_med_2008_2020 <- con_med_x2008_x2020 %>%
 
 # calculando consultas médicas por mil habitantes
 
-con_med_2008_2020 <- con_med_2008_2020 %>% 
-  left_join(qt_pop, by = c("cod_mun", "ano")) %>% 
-  mutate(
-    consulta_med_por_mil = (consulta_med * 1000) / qt_pop
-  ) %>% 
-  filter(!is.na(qt_pop)) %>% 
-  arrange(cod_mun)
+cons_med <- var_pc_pm(con_med_2008_2020, "consulta_med", por_mil = T)
 
 
 
@@ -633,24 +630,12 @@ visita_2008_2020 <- visita_x2008_x2020 %>%
     nome_mun = str_to_upper(nome_mun)
   ) %>% 
   relocate(ano) %>% 
-  arrange(cod_mun) %>% 
-  left_join(qt_pop, by = c("cod_mun", "ano")) %>% 
-  mutate(
-    visitas_por_mil = (visitas * 1000) / qt_pop
-  ) %>% 
-  filter(!is.na(qt_pop)) %>% 
   arrange(cod_mun)
 
 
 # calculando visitas por mil habitantes
 
-visita_2008_2020 <- visita_2008_2020 %>% 
-  left_join(qt_pop, by = c("cod_mun", "ano")) %>% 
-  mutate(
-    visitas_por_mil = (visitas * 1000) / qt_pop
-  ) %>% 
-  filter(!is.na(qt_pop)) %>% 
-  arrange(cod_mun)
+visita <- var_pc_pm(visita_2008_2020, "visitas", por_mil = T)
 
 
 
@@ -692,13 +677,7 @@ cons_prof_2008_2020 <- con_prof_x2008_x2020 %>%
 
 # calculando consultas profissionais por mil habitantes
 
-cons_prof_2008_2020 <- cons_prof_2008_2020 %>% 
-  left_join(qt_pop, by = c("cod_mun", "ano")) %>% 
-  mutate(
-    consulta_prof_sup_por_mil = (consulta_prof_sup * 1000) / qt_pop
-  ) %>% 
-  filter(!is.na(qt_pop)) %>% 
-  arrange(cod_mun)
+cons_prof <- var_pc_pm(cons_prof_2008_2020, "consulta_prof_sup", por_mil = T)
 
 
 
@@ -739,12 +718,7 @@ leitos_2005_2020 <- leitos_x2005_x2020 %>%
 
 # calculando leitos por mil habitantes
 
-leitos_2005_2020 <- leitos_2005_2020 %>%
-  left_join(qt_pop, by = c("cod_mun", "ano")) %>% 
-  mutate(
-    leitos_por_mil = (leitos * 1000) / qt_pop
-  ) %>% 
-  filter(!is.na(qt_pop))
+leitos <- var_pc_pm(leitos_2005_2020, "leitos", por_mil = T)
 
 
 
@@ -779,26 +753,14 @@ desp_prop_2000_2021 <- desp_prop_x2000_x2021 %>%
   arrange(cod_mun) 
 
 
-# colocando a preços constantes de 2020
+# colocando a preços constantes de 2019
 
-desp_prop_const_2020 <- desp_prop_2000_2021 %>%
-  left_join(ipca_deflator_2020, by = "ano") %>%
-  mutate(desp_prop_2020 = desp_prop * deflator_2020) %>% 
-  select(-ipca, - deflator_2020)
+desp_prop <- deflate_num(desp_prop_2000_2021, 2019, "desp_prop_2019", "desp_prop")
 
 
-# calculando a despesa per capita a preços constantes de 2020
+# calculando a despesa per capita a preços constantes de 2019
 
-desp_prop_const_2020_pc <- desp_prop_const_2020 %>% 
-  left_join(qt_pop, by = c("cod_mun", "ano")) %>% 
-  mutate(
-    desp_prop_pc_2020 = desp_prop_2020 / qt_pop
-  ) %>% 
-  rename(nome_mun = nome_mun.x) %>% 
-  select(-nome_mun.y) %>% 
-  filter(!is.na(qt_pop)) %>% 
-  arrange(cod_mun)
-
+desp_prop <- var_pc_pm(desp_prop, "desp_prop_2019")
 
 
 
@@ -833,25 +795,14 @@ desp_tot_2000_2021 <- desp_tot_x2000_x2021 %>%
   arrange(cod_mun)
 
 
-# colocando a preços constantes de 2020
+# colocando a preços constantes de 2019
 
-desp_tot_const_2020 <- desp_tot_2000_2021 %>%
-  left_join(ipca_deflator_2020, by = "ano") %>%
-  mutate(desp_tot_2020 = desp_tot * deflator_2020) %>% 
-  select(-ipca, - deflator_2020)
+desp_tot <- deflate_num(desp_tot_2000_2021, 2019, "desp_tot_2019", "desp_tot")
 
 
-# calculando a despesa per capita a preços constantes de 2020
+# calculando a despesa per capita a preços constantes de 2019
 
-desp_tot_const_2020_pc <- desp_tot_const_2020 %>% 
-  left_join(qt_pop, by = c("cod_mun", "ano")) %>% 
-  mutate(
-    desp_tot_pc_2020 = desp_tot_2020 / qt_pop
-  ) %>% 
-  rename(nome_mun = nome_mun.x) %>% 
-  select(-nome_mun.y) %>% 
-  filter(!is.na(qt_pop)) %>% 
-  arrange(cod_mun)
+desp_tot <- var_pc_pm(desp_tot, "desp_tot_2019")
 
 
 
@@ -931,15 +882,7 @@ medicos <- bind_rows(medico_2005_2006, medico_2007_2020) %>%
 
 # calculando médicos por mil habitantes
 
-medicos <- medicos %>%
-  left_join(qt_pop, by = c("cod_mun", "ano")) %>% 
-  mutate(
-    medicos_por_mil = (medicos * 1000) / qt_pop
-  ) %>% 
-  rename(nome_mun = nome_mun.x) %>% 
-  select(-nome_mun.y) %>%
-  filter(!is.na(qt_pop)) %>% 
-  arrange(cod_mun)
+medicos <- var_pc_pm(medicos, "medicos", por_mil = T)
 
 
 
@@ -979,15 +922,7 @@ benef_priv_2000_2020 <- benef_priv_x2000_x2020 %>%
 
 # calculando beneficiários de plano privado per capita
 
-benef_priv_2000_2020 <- benef_priv_2000_2020 %>% 
-  left_join(qt_pop, by = c("cod_mun", "ano")) %>% 
-  mutate(
-    cob_plano_priv = benef_plano_priv / qt_pop
-  ) %>% 
-  rename(nome_mun = nome_mun.x) %>% 
-  select(-nome_mun.y) %>%
-  filter(!is.na(qt_pop)) %>% 
-  arrange(cod_mun)
+benef_priv <- var_pc_pm(benef_priv_2000_2020, "benef_plano_priv")
 
 
 
@@ -1065,7 +1000,7 @@ transf_sus_2000_2021 <- transf_sus_x2000_x2021 %>%
 
 # ESF --------------------------------------------------------------------------
 
-# tratamento dos dados de esf de 1999 a 2006
+# tratamento dos dados de esf de 1999 a 2006, selecionado somente dezembro
 
 esf_x1999_x2006 <- readxl::read_xlsx("dados/dados_brutos/ESF 1999 a 2006.xlsx") %>% 
   clean_names()
@@ -1080,27 +1015,22 @@ esf_1999_2006 <- esf_x1999_x2006 %>%
     qt_cob_esf = pop_acomp
   ) %>% 
   mutate(
-    pct_cob_esf = (qt_cob_esf / qt_pop) * 100,
-    grau_cob_esf = case_when(
-      pct_cob_esf == 0 ~ 0,
-      pct_cob_esf < 30 ~ 1,
-      pct_cob_esf >= 30 & pct_cob_esf < 70 ~ 2,
-      pct_cob_esf >= 70 ~ 3), 
+    pct_cob_esf = (qt_cob_esf / qt_pop) * 100, 
     cod_mun = str_sub(as.character(cod_mun), 1, 6),
     nome_mun = str_to_upper(nome_mun)
     ) %>% 
   relocate(
-    ano, cod_mun, nome_mun, qt_cob_esf, qt_pop, pct_cob_esf, grau_cob_esf
+    ano, cod_mun, nome_mun, qt_cob_esf, pct_cob_esf
   ) %>% 
-  arrange(cod_mun)
+  arrange(cod_mun) %>% 
+  select(-esf_qualificadas, -esf_no_siab)
 
 
-# calculando o grau de cobertura de esf de 1999 a 2006
+# calculando o grau de cobertura de esf
 
-esf_grau <- esf_1999_2006 %>%
+esf_1999_2006 <- esf_1999_2006 %>%
   arrange(cod_mun, ano) %>%
   mutate(
-    pct_cob_esf = (qt_cob_esf / qt_pop) * 100,
     grau_cob_esf = case_when(
       pct_cob_esf == 0 ~ 0,
       pct_cob_esf < 30 ~ 1,
@@ -1109,7 +1039,7 @@ esf_grau <- esf_1999_2006 %>%
     )
   )
 
-esf_grau <- esf_grau %>%
+esf_1999_2006 <- esf_1999_2006 %>%
   group_by(cod_mun) %>%
   mutate(
     cobertura_70 = pct_cob_esf >= 70,
@@ -1127,10 +1057,12 @@ esf_grau <- esf_grau %>%
       grau_temp
     }
   ) %>%
-  ungroup()
+  ungroup() %>% 
+  select(-cobertura_70) %>% 
+  relocate(grau_cob_esf, esf_implantada, .after = pct_cob_esf)
 
 
-# tratamento dos dados de esf de 2007 a 2020
+# tratamento dos dados de esf de 2007 a 2020, selecionado somente dezembro
 
 # lendo as abas do Excel, na qual cada uma contém o dado de um ano 
 
@@ -1152,7 +1084,7 @@ base_esf_x2007_x2020 <- list_rbind(dados_esf_x2007_x2020)
 
 # tratando os dados de esf de 2007 a 2020
 
-base_esf_2007_2020 <- base_esf_x2007_x2020 %>% 
+esf_2007_2020 <- base_esf_x2007_x2020 %>% 
   filter(str_sub(NU_COMPETENCIA, 5, 6) == "12") %>% 
   select(-c(QT_EQUIPE_AB_PARAMETRIZADA, QT_CH_MEDICO, QT_CH_ENFERMEIRO, QT_EQUIPE_AB_EQUIVALENTE_CH,
             NU_ANO_POPULACAO_CONSIDERADA, TP_ORIGEM_BASE_POPULACAO)) %>% 
@@ -1168,33 +1100,63 @@ base_esf_2007_2020 <- base_esf_x2007_x2020 %>%
     qt_cob_esf = qt_cobertura_sf
   ) %>% 
   mutate(
+    ano = as.numeric(ano),
     qt_pop = clear_num(qt_pop),
     qt_cob_esf = clear_num(qt_cob_esf),
     pct_cob_esf = (qt_cob_esf / qt_pop) * 100, 
+    qt_equipe_sf = as.numeric(qt_equipe_sf)
+    ) %>% 
+  select(-qt_equipe_sf_ab, -pc_cobertura_sf, -qt_cobertura_ab, -pc_cobertura_ab) %>% 
+  rename(
+    cod_regiao = co_regiao,
+    nome_regiao = no_regiao,
+    cod_uf = cod_uf_ibge,
+    nome_uf = no_uf_acentuado
+  ) %>% 
+  relocate(ano, cod_mun, nome_mun, qt_cob_esf, pct_cob_esf, qt_equipe_sf, cod_regiao, nome_regiao, 
+           sg_regiao, cod_uf)
+
+
+# calculando o grau de cobertura de esf de 2007 a 2020
+
+esf_2007_2020 <- esf_2007_2020 %>%
+  arrange(cod_mun, ano) %>%
+  mutate(
     grau_cob_esf = case_when(
       pct_cob_esf == 0 ~ 0,
       pct_cob_esf < 30 ~ 1,
       pct_cob_esf >= 30 & pct_cob_esf < 70 ~ 2,
-      pct_cob_esf >= 70 ~ 3
-    )) %>% 
-  relocate(ano, cod_mun, nome_mun, qt_cob_esf, qt_pop, pct_cob_esf, grau_cob_esf)
+      pct_cob_esf >= 70 ~ 2
+    )
+  )
 
-
-# criando uma função para limpar o número e transformar em numérico
-
-clear_num <- function(x) {
-  x %>%
-    stringr::str_replace_all("[^0-9,\\.]", "") %>%
-    stringr::str_replace_all("\\.", "") %>%
-    stringr::str_replace(",", ".") %>%
-    as.numeric()
-}
+esf_2007_2020 <- esf_2007_2020 %>%
+  group_by(cod_mun) %>%
+  mutate(
+    cobertura_70 = pct_cob_esf >= 70,
+    grau_cob_esf = {
+      grau_temp <- grau_cob_esf
+      n_linhas <- n()
+      if (n_linhas >= 4) {
+        for (i in 4:n_linhas) {
+          if (all(cobertura_70[(i - 3):i])) {
+            grau_temp[i:n_linhas] <- 3
+            break
+          }
+        }
+      }
+      grau_temp
+    }
+  ) %>%
+  ungroup() %>% 
+  select(-cobertura_70) %>% 
+  relocate(grau_cob_esf, .after = pct_cob_esf)
 
 
 
 # POP --------------------------------------------------------------------------
 
-# tratamento dos dados de população de 2000 a 2020
+# tratamento dos dados de população de 2000 a 2020, selecionando somente dezembro
 
 qt_pop_2000_2006 <- esf_1999_2006 %>% 
   filter(mes == "12", ano >= "2000" & ano <= "2006") %>% 
@@ -1203,7 +1165,7 @@ qt_pop_2000_2006 <- esf_1999_2006 %>%
     ano = as.numeric(ano)
   )
 
-qt_pop_2007_2020 <- base_esf_2007_2020 %>% 
+qt_pop_2007_2020 <- esf_2007_2020 %>% 
   filter(str_sub(nu_competencia, 5, 6) == "12") %>% 
   select(ano, cod_mun, nome_mun, qt_pop) %>% 
   mutate(
@@ -1215,6 +1177,9 @@ qt_pop_2007_2020 <- base_esf_2007_2020 %>%
 
 qt_pop <- bind_rows(qt_pop_2000_2006, qt_pop_2007_2020) %>% 
   arrange(cod_mun)
+
+
+writexl::write_xlsx(qt_pop, "dados/dados_tratados/qt_pop.xlsx")
 
 
 # calculando o porte dos municípios
@@ -1230,12 +1195,64 @@ pop_porte_mun <- qt_pop %>%
       qt_pop >= 500000 & qt_pop < 2000000 ~ 5,
       qt_pop >= 2000000 & qt_pop < 5000000 ~ 6,
       qt_pop >= 5000000 ~ 7)
-    )
+    ) %>% 
+  select(-qt_pop)
 
 
 
+# BASE GERAL -------------------------------------------------------------------
+
+# criando uma lista para armazenar todos os dataframes
+
+lista_geral <- list()
+
+variaveis <- c("pib", "urban", "analf", "agua", "esgoto", "bf", "cons_med",
+               "visita", "cons_prof", "leitos", "desp_prop", "desp_tot",
+               "medicos", "benef_priv", "pct_asps_2000_2021", "transf_sus_2000_2021", 
+               "esf_1999_2006", "esf_2007_2020", "qt_pop", "pop_porte_mun")
+
+lista_geral <- map(variaveis, ~ get(.x))
 
 
+# usando reduce para aplicar o left_join iterativamente
+
+base_geral <- reduce(lista_geral, left_join, by = c("ano", "cod_mun", "nome_mun")) %>%
+  mutate(
+    qt_cob_esf = coalesce(qt_cob_esf.x, qt_cob_esf.y),
+    pct_cob_esf = coalesce(pct_cob_esf.x, pct_cob_esf.y), 
+    grau_cob_esf = coalesce(grau_cob_esf.x, grau_cob_esf.y)
+  ) %>% 
+  select(-qt_cob_esf.x, -qt_cob_esf.y, -pct_cob_esf.x, -pct_cob_esf.y, 
+         -grau_cob_esf.x, -grau_cob_esf.y) %>% 
+  relocate(qt_cob_esf, pct_cob_esf, grau_cob_esf, qt_pop, porte_mun, .before = esf_implantada)
+
+writexl::write_xlsx(base_geral, "dados/dados_tratados/base_geral.xlsx")
+
+
+head(base_geral)
+
+tail(base_geral)
+
+dim(base_geral)
+
+names(base_geral)
+
+str(base_geral)
+
+
+
+base_geral %>% 
+  dfSummary(
+    graph.col = T, 
+    style = "grid", 
+    graph.magnif = 0.75
+  ) %>% 
+  stview()
+
+
+base_geral %>% 
+  freq() %>% 
+  stview()
 
 
 
