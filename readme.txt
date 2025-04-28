@@ -2,11 +2,9 @@
 
 Bases trabalhadas
 
-- PIB (falta deflacionar)
+- PIB (falta deflacionar) 
 
 - Perc de urbanização
-
-Bases a trabalhar
 
 - Esgoto (91,2010,2022)
 
@@ -33,5 +31,7 @@ Bases a trabalhar
 - Consulta de profissionais de nivel superior na atenção primária (consultaprofsup_2008_2020)
 
 - ??? (desppropria_2000_2021 e desppropria_2000_2021) [ENTENDER COM A DANI ONDE ELA PEGOU E VER FORMAR ALTERNATIVAS DE COLETA]
+
+Bases a trabalhar
 
 - Estratégia da saúde da família (ESF 1996 a 2006 e ESF-2007-202012)

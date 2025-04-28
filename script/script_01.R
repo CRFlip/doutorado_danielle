@@ -195,7 +195,7 @@ pib <- bind_rows(pib_2002_2009, pib_2010_2021) %>%
 
 # colocando a preços constantes de 2019
 
-pib <- deflate_2019(pib, 2019, "pib_real_2019", "pib_nom")
+pib <- deflate_num(pib, 2019, "pib_real_2019", "pib_nom")
 
 
 # calculando o PIB per capita a preços constantes de 2019
@@ -1181,6 +1181,7 @@ qt_pop <- bind_rows(qt_pop_2000_2006, qt_pop_2007_2020) %>%
 
 writexl::write_xlsx(qt_pop, "dados/dados_tratados/qt_pop.xlsx")
 
+qt_pop <- readxl::read_xlsx("dados/dados_tratados/qt_pop.xlsx")
 
 # calculando o porte dos municípios
 
@@ -1256,5 +1257,9 @@ base_geral %>%
 
 
 
+base <- readxl::read_xlsx("dados/dados_tratados/base_geral.xlsx")
 
+
+base %>% 
+  view()
 
