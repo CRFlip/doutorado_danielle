@@ -517,12 +517,12 @@ pib <- bind_rows(pib_2002_2009, pib_2010_2021) %>%
 
 # colocando a preços constantes de 2019
 
-pib <- deflate_num(pib, 2021, "pib_real_2021", "pib_nom")
+pib <- deflate_num(pib, 2019, "pib_real_2019", "pib_nom")
 
 
 # calculando o PIB per capita a preços constantes de 2019
 
-pib <- var_pc_pm(pib, "pib_real_2021")
+pib <- var_pc_pm(pib, "pib_real_2019")
 
 
 # juntando os dados auxiliares do PIB de 2002 a 2021
@@ -535,7 +535,7 @@ ref_cod_mun_aux_2021 <- ref_cod_mun_aux %>%
 
 # carregamento dos dados para o Excel
 
-writexl::write_xlsx(pib_2002_2021, "dados/dados_tratados/pib_2002_2021.xlsx")
+writexl::write_xlsx(pib, "dados/dados_tratados/pib_2002_2021.xlsx")
 
 writexl::write_xlsx(ref_cod_mun_aux_2021, "dados/dados_tratados/ref_cod_mun_aux_tratado.xlsx")
 
@@ -891,8 +891,11 @@ bf <- bf %>%
 
 # tratamento dos dados de consulta médica de 2008 a 2020
 
-con_med_x2008_x2020 <- readxl::read_xlsx("dados/dados_brutos/consultamedico_2008_2020.xlsx") %>% 
-  clean_names()
+con_med_x2008_x2020 <- read.csv2("dados/dados_brutos/consultamedico_2008_2020.csv", fileEncoding = "latin1", skip = 5) %>% 
+  clean_names() %>% as.tibble()
+
+#con_med_x2008_x2020 <- readxl::read_xlsx("dados/dados_brutos/consultamedico_2008_2020.xlsx") %>% 
+#  clean_names()
 
 con_med_2008_2020 <- con_med_x2008_x2020 %>%
   select(-last_col()) %>% 
@@ -920,6 +923,14 @@ con_med_2008_2020 <- con_med_x2008_x2020 %>%
   relocate(ano) %>% 
   arrange(cod_mun)
 
+#Removendo as linhas que não são municipios
+
+con_med_2008_2020 <- con_med_2008_2020 %>% filter(str_detect(cod_mun, "^\\d{6}$"))
+
+#Colocando 0 nos municipios com NA
+
+con_med_2008_2020 <- con_med_2008_2020 %>% 
+  mutate(consulta_med = if_else(is.na(consulta_med), 0, consulta_med))
 
 # calculando consultas médicas por mil habitantes
 
@@ -931,15 +942,22 @@ cons_med <- var_pc_pm(con_med_2008_2020, "consulta_med", por_mil = T)
 
 # tratamento dos dados de visitas de 2008 a 2020
 
-visita_x2008_x2020 <- readxl::read_xlsx("dados/dados_brutos/visita_2008_2020.xlsx")
+visita_x2008_x2020 <- read.csv2("dados/dados_brutos/visita_2008_2020.csv", fileEncoding = "latin1", skip = 5) %>% 
+  clean_names() %>% as.tibble()
+
+#visita_x2008_x2020 <- readxl::read_xlsx("dados/dados_brutos/visita_2008_2020.xlsx")
 
 visita_2008_2020 <- visita_x2008_x2020 %>% 
+  select(-last_col()) %>% 
   separate(
-    Município, 
+    municipio, 
     into = c("cod_mun", "nome_mun"), 
     sep = " ", 
     extra = "merge"
   ) %>% 
+  rename_with(
+    ~ gsub("^x(\\d{4})_dez$", "\\1", .), 
+    starts_with("x")) %>% 
   pivot_longer(
     cols = -(1:2),
     names_to = "ano",
@@ -954,6 +972,14 @@ visita_2008_2020 <- visita_x2008_x2020 %>%
   relocate(ano) %>% 
   arrange(cod_mun)
 
+#Removendo as linhas que não são municipios
+
+visita_2008_2020 <- visita_2008_2020 %>% filter(str_detect(cod_mun, "^\\d{6}$"))
+
+#Colocando 0 nos municipios com NA
+
+visita_2008_2020 <- visita_2008_2020 %>% 
+  mutate(visitas = if_else(is.na(visitas), 0, visitas))
 
 # calculando visitas por mil habitantes
 
@@ -965,20 +991,26 @@ visita <- var_pc_pm(visita_2008_2020, "visitas", por_mil = T)
 
 # tratamento dos dados de consultas profissionais de 2008 a 2020
 
-con_prof_x2008_x2020 <- readxl::read_xlsx("dados/dados_brutos/consultaprofsup_2008_2020.xlsx") %>% 
-  clean_names()
+con_prof_x2008_x2020 <- read.csv2("dados/dados_brutos/consultaprofsup_2008_2020.csv", fileEncoding = "latin1", skip = 5) %>% 
+  clean_names() %>% as.tibble()
+
+#con_prof_x2008_x2020 <- readxl::read_xlsx("dados/dados_brutos/consultaprofsup_2008_2020.xlsx") %>% 
+#  clean_names()
+
+
 
 cons_prof_2008_2020 <- con_prof_x2008_x2020 %>%
-  select(-x15) %>% 
-  slice(-(1:4)) %>% 
-  slice(1:(n() - 12)) %>% 
-  row_to_names(row_number = 1) %>% 
+  slice(1:(which(con_prof_x2008_x2020$municipio == "Total")-1)) %>% 
+  select(-last_col()) %>% 
   separate(
-    Município, 
+    municipio, 
     into = c("cod_mun", "nome_mun"), 
     sep = " ", 
     extra = "merge"
   ) %>% 
+  rename_with(
+    ~ gsub("^x(\\d{4})_dez$", "\\1", .), 
+    starts_with("x")) %>% 
   rename_with(
     ~ gsub("/.*$", "", .), 
     starts_with("2")
@@ -996,6 +1028,11 @@ cons_prof_2008_2020 <- con_prof_x2008_x2020 %>%
   relocate(ano) %>% 
   arrange(cod_mun)
 
+#Colocando 0 nos municipios com NA
+
+cons_prof_2008_2020 <- cons_prof_2008_2020 %>% 
+  mutate(consulta_prof_sup = if_else(is.na(consulta_prof_sup), 0, consulta_prof_sup))
+
 
 # calculando consultas profissionais por mil habitantes
 
@@ -1007,19 +1044,20 @@ cons_prof <- var_pc_pm(cons_prof_2008_2020, "consulta_prof_sup", por_mil = T)
 
 # tratamento dos dados de leitos de 2005 a 2020
 
-leitos_x2005_x2020 <- readxl::read_xlsx("dados/dados_brutos/leitos_2005_2020.xlsx") %>% 
-  clean_names()
+leitos_x2005_x2020 <- read.csv2("dados/dados_brutos/leitos_2005_2020.csv", fileEncoding = "latin1", skip = 3) %>% 
+  clean_names() %>% as.tibble(.)
 
 leitos_2005_2020 <- leitos_x2005_x2020 %>% 
-  slice(-(1:2)) %>% 
   slice(1:(n() - 13)) %>% 
-  row_to_names(row_number = 1) %>% 
   separate(
-    Município, 
+    municipio, 
     into = c("cod_mun", "nome_mun"), 
     sep = " ", 
     extra = "merge"
   ) %>% 
+  rename_with(
+    ~ gsub("^x(\\d{4})_dez$", "\\1", .), 
+    starts_with("x")) %>% 
   rename_with(
     ~ gsub("/.*$", "", .), 
     starts_with("2")
@@ -1037,6 +1075,10 @@ leitos_2005_2020 <- leitos_x2005_x2020 %>%
   relocate(ano) %>% 
   arrange(cod_mun)
 
+#Colocando 0 nos municipios com NA
+
+cons_prof_2008_2020 <- cons_prof_2008_2020 %>% 
+  mutate(consulta_prof_sup = if_else(is.na(consulta_prof_sup), 0, consulta_prof_sup))
 
 # calculando leitos por mil habitantes
 
@@ -1048,15 +1090,18 @@ leitos <- var_pc_pm(leitos_2005_2020, "leitos", por_mil = T)
 
 # tratamento dos dados de despesas com recursos próprios de 2000 a 2021
 
-desp_prop_x2000_x2021 <- readxl::read_xlsx("dados/dados_brutos/desppropria_2000_2021.xlsx") %>% 
-  clean_names()
+
+desp_prop_x2000_x2021 <- read.csv2("dados/dados_brutos/desppropria_2000_2021.csv", fileEncoding = "latin1", skip = 3) %>% 
+  clean_names() %>% as.tibble(.)
+
+# desp_prop_x2000_x2021 <- readxl::read_xlsx("dados/dados_brutos/desppropria_2000_2021.xlsx") %>% 
+#   clean_names()
 
 desp_prop_2000_2021 <- desp_prop_x2000_x2021 %>% 
   select(-last_col()) %>% 
   slice(-(1:2), -n()) %>% 
-  row_to_names(row_number = 1) %>% 
   separate(
-    `Munic-BR`, 
+    munic_br, 
     into = c("cod_mun", "nome_mun"), 
     sep = " ", 
     extra = "merge"
@@ -1067,6 +1112,7 @@ desp_prop_2000_2021 <- desp_prop_x2000_x2021 %>%
     values_to = "desp_prop"
   ) %>% 
   mutate(
+    ano = str_sub(ano,2,5),
     across(c(ano, desp_prop), as.numeric), 
     cod_mun = str_sub(as.character(cod_mun), 1, 6),
     nome_mun = str_to_upper(nome_mun)
@@ -1090,15 +1136,17 @@ desp_prop <- var_pc_pm(desp_prop, "desp_prop_2019")
 
 # tratamento dos dados de despesa total em saúde de 2000 a 2021
 
-desp_tot_x2000_x2021 <- readxl::read_xlsx("dados/dados_brutos/desptot_2000_2021.xlsx") %>% 
-  clean_names()
+desp_tot_x2000_x2021 <- read.csv2("dados/dados_brutos/desptot_2000_2021.csv", fileEncoding = "latin1", skip = 3) %>% 
+  clean_names() %>% as.tibble(.)
+
+# desp_tot_x2000_x2021 <- readxl::read_xlsx("dados/dados_brutos/desptot_2000_2021.xlsx") %>% 
+#   clean_names()
 
 desp_tot_2000_2021 <- desp_tot_x2000_x2021 %>% 
   select(-last_col()) %>% 
   slice(-(1:2), -n()) %>% 
-  row_to_names(row_number = 1) %>% 
   separate(
-    `Munic-BR`, 
+    munic_br, 
     into = c("cod_mun", "nome_mun"), 
     sep = " ", 
     extra = "merge"
@@ -1109,6 +1157,7 @@ desp_tot_2000_2021 <- desp_tot_x2000_x2021 %>%
     values_to = "desp_tot"
   ) %>% 
   mutate(
+    ano = str_sub(ano,2,5),
     across(c(ano, desp_tot), as.numeric), 
     cod_mun = str_sub(as.character(cod_mun), 1, 6),
     nome_mun = str_to_upper(nome_mun)
@@ -1132,15 +1181,16 @@ desp_tot <- var_pc_pm(desp_tot, "desp_tot_2019")
 
 # tratamento dos dados de médicos de 2005 a 2006
 
-medico_x2005_x2006 <- readxl::read_xlsx("dados/dados_brutos/medico_2005_2006.xlsx") %>% 
-  clean_names()
+medico_x2005_x2006 <- read.csv2("dados/dados_brutos/medico_2005_2006.csv", fileEncoding = "latin1", skip = 4) %>% 
+  clean_names() %>% as.tibble(.)
+
+# medico_x2005_x2006 <- readxl::read_xlsx("dados/dados_brutos/medico_2005_2006.xlsx") %>% 
+#   clean_names()
 
 medico_2005_2006 <- medico_x2005_x2006 %>% 
-  slice(-(1:3)) %>% 
   slice(1:(n() - 2)) %>% 
-  row_to_names(row_number = 1) %>% 
   separate(
-    Município, 
+    municipio, 
     into = c("cod_mun", "nome_mun"), 
     sep = " ", 
     extra = "merge"
@@ -1154,7 +1204,7 @@ medico_2005_2006 <- medico_x2005_x2006 %>%
     names_to = "ano",
     values_to = "medicos"
   ) %>% 
-  mutate(
+  mutate(ano = str_sub(ano,2,5),
     across(c(ano, medicos), as.numeric), 
     cod_mun = str_sub(as.character(cod_mun), 1, 6),
     nome_mun = str_to_upper(nome_mun)
@@ -1165,15 +1215,16 @@ medico_2005_2006 <- medico_x2005_x2006 %>%
 
 # tratamento dos dados de médicos de 2007 a 2020
 
-medico_x2007_x2020 <- readxl::read_xlsx("dados/dados_brutos/medico_2007_2020.xlsx") %>% 
-  clean_names()
+medico_x2007_x2020 <- read.csv2("dados/dados_brutos/medico_2007_2020.csv", fileEncoding = "latin1", skip = 4) %>% 
+  clean_names() %>% as.tibble(.)
+ 
+# medico_x2007_x2020 <- readxl::read_xlsx("dados/dados_brutos/medico_2007_2020.xlsx") %>% 
+#   clean_names()
 
 medico_2007_2020 <- medico_x2007_x2020 %>% 
-  slice(-(1:3)) %>% 
   slice(1:(n() - 10)) %>% 
-  row_to_names(row_number = 1) %>% 
   separate(
-    Município, 
+    municipio, 
     into = c("cod_mun", "nome_mun"), 
     sep = " ", 
     extra = "merge"
@@ -1188,6 +1239,7 @@ medico_2007_2020 <- medico_x2007_x2020 %>%
     values_to = "medicos"
   ) %>% 
   mutate(
+    ano = str_sub(ano,2,5),
     across(c(ano, medicos), as.numeric), 
     cod_mun = str_sub(as.character(cod_mun), 1, 6),
     nome_mun = str_to_upper(nome_mun)
@@ -1212,18 +1264,19 @@ medicos <- var_pc_pm(medicos, "medicos", por_mil = T)
 
 # tratamento dos dados de beneficiários de plano privado de saúde de 2000 a 2020
 
-benef_priv_x2000_x2020 <- readxl::read_xlsx("dados/dados_brutos/plsaudebenef_2000_2020.xlsx")
+benef_priv_x2000_x2020 <- read.csv2("dados/dados_brutos/plsaudebenef_2000_2020.csv", fileEncoding = "latin1", skip = 5) %>% 
+  clean_names() %>% as.tibble(.)
+
+# benef_priv_x2000_x2020 <- readxl::read_xlsx("dados/dados_brutos/plsaudebenef_2000_2020.xlsx")
 
 benef_priv_2000_2020 <- benef_priv_x2000_x2020 %>% 
-  slice(-(1:4)) %>% 
   slice(1:(n() - 8)) %>% 
-  row_to_names(row_number = 1) %>% 
-  select(
-    1, 
-    rev(2:ncol(.))
-  ) %>% 
+#  select(
+#    1, 
+#    rev(2:ncol(.))
+#  ) %>% 
   separate(
-    Município, 
+    municipio, 
     into = c("cod_mun", "nome_mun"), 
     sep = " ", 
     extra = "merge"
@@ -1234,6 +1287,7 @@ benef_priv_2000_2020 <- benef_priv_x2000_x2020 %>%
     values_to = "benef_plano_priv"
   ) %>% 
   mutate(
+    ano = paste0("20", str_sub(ano,5,6)),
     across(c(ano, benef_plano_priv), as.numeric), 
     cod_mun = str_sub(as.character(cod_mun), 1, 6),
     nome_mun = str_to_upper(nome_mun)
@@ -1252,21 +1306,22 @@ benef_priv <- var_pc_pm(benef_priv_2000_2020, "benef_plano_priv")
 
 # tratamento dos dados de ASPS de 2000 a 2021
 
-pct_asps_x2000_x2021 <- readxl::read_xlsx("dados/dados_brutos/percASPS_2000_2021.xlsx") %>% 
-  clean_names()
+pct_asps_x2000_x2021 <- read.csv2("dados/dados_brutos/percASPS_2000_2021.csv", fileEncoding = "latin1", skip = 3) %>% 
+  clean_names() %>% as.tibble(.)
+
+#pct_asps_x2000_x2021 <- readxl::read_xlsx("dados/dados_brutos/percASPS_2000_2021.xlsx") %>% 
+#  clean_names()
 
 pct_asps_2000_2021 <- pct_asps_x2000_x2021 %>%
-  select(-last_col()) %>% 
   slice(-(1:2), -n()) %>% 
-  row_to_names(row_number = 1) %>% 
   separate(
-    `Munic-BR`, 
+    munic_br, 
     into = c("cod_mun", "nome_mun"), 
     sep = " ", 
     extra = "merge"
   ) %>%
   mutate(
-    across(`2000`:`2021`, as.numeric)
+    across(starts_with("x"), function(x) {as.numeric(str_replace(x, ",","."))})
   ) %>% 
   pivot_longer(
     cols = -c(cod_mun, nome_mun),
@@ -1274,7 +1329,7 @@ pct_asps_2000_2021 <- pct_asps_x2000_x2021 %>%
     values_to = "pct_asps"
   ) %>% 
   mutate(
-    ano = as.numeric(ano),
+    ano = as.numeric(str_sub(ano,2,5)),
     pct_asps = as.numeric(pct_asps) / 100, 
     cod_mun = str_sub(as.character(cod_mun), 1, 6),
     nome_mun = str_to_upper(nome_mun)
@@ -1288,21 +1343,22 @@ pct_asps_2000_2021 <- pct_asps_x2000_x2021 %>%
 
 # tratamento dos dados de transferências do sus de 2000 a 2021
 
-transf_sus_x2000_x2021 <- readxl::read_xlsx("dados/dados_brutos/perctransfSUS_2000_2021.xlsx") %>% 
-  clean_names()
+transf_sus_x2000_x2021 <- read.csv2("dados/dados_brutos/perctransfSUS_2000_2021.csv", fileEncoding = "latin1", skip = 3) %>% 
+  clean_names() %>% as.tibble(.)
+
+#transf_sus_x2000_x2021 <- readxl::read_xlsx("dados/dados_brutos/perctransfSUS_2000_2021.xlsx") %>% 
+#  clean_names()
 
 transf_sus_2000_2021 <- transf_sus_x2000_x2021 %>%
   select(-last_col()) %>% 
-  slice(-(1:2), -n()) %>% 
-  row_to_names(row_number = 1) %>% 
   separate(
-    `Munic-BR`, 
+    munic_br, 
     into = c("cod_mun", "nome_mun"), 
     sep = " ", 
     extra = "merge"
   ) %>%
   mutate(
-    across(`2000`:`2021`, as.numeric)
+    across(starts_with("x"), function(x) {as.numeric(str_replace(x, ",","."))})
   ) %>% 
   pivot_longer(
     cols = -c(cod_mun, nome_mun),
@@ -1310,7 +1366,7 @@ transf_sus_2000_2021 <- transf_sus_x2000_x2021 %>%
     values_to = "pct_transf_sus"
   ) %>% 
   mutate(
-    ano = as.numeric(ano),
+    ano = as.numeric(str_sub(ano,2,5)),
     pct_transf_sus = as.numeric(pct_transf_sus) / 100, 
     cod_mun = str_sub(as.character(cod_mun), 1, 6),
     nome_mun = str_to_upper(nome_mun)
