@@ -1433,8 +1433,3 @@ base_geral %>%
 base_geral %>% 
   freq() %>% 
   stview()
-
-
-
-
-
