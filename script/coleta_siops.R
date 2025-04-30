@@ -66,6 +66,7 @@ map2(codigos_uf,codigos_muni, function(x,y) {
   
   if (length(tabelas)==1) {
     
+    temp <- 
     tabelas[[1]] %>% 
       rename_with(~ tabelas[[1]][1,] %>% unlist() %>% unname()) %>% 
       slice(-1) %>% 
@@ -80,6 +81,10 @@ map2(codigos_uf,codigos_muni, function(x,y) {
         "População Total:")),
         !(str_starts(Código, "NOTA"))) %>% mutate(cod_mun = y)
     
+    print(paste0("O município ", y, " do Estado ", x, " foi!"))
+    
+    temp
+    
   } else {
     
     print(paste0("O município de código ", y, " por algum motivo não pode ser extraido. Quando puxou veio mais de uma tabela. Dá uma olhada nesse municipio lá no site pra entender"))
@@ -92,6 +97,8 @@ map2(codigos_uf,codigos_muni, function(x,y) {
 })
 
 
+base_siops <- list_rbind(teste)
 
+base_siops <- base_siops %>% rename_with(~ c("codigo_siop", "nome_siop", "ano", "valor", "cod_mun"))
 
-df %>% distinct(Código) %>% clipr::write_clip()
+base_siops %>% write.csv(., "base_siops.csv", row.names = F, fileEncoding = "UTF-8")
