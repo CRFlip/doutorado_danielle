@@ -1416,17 +1416,3 @@ base_geral %>%
     graph.magnif = 0.75
   ) %>% 
   stview()
-
-
-base_geral %>% 
-  freq() %>% 
-  stview()
-
-
-
-base <- readxl::read_xlsx("dados/dados_tratados/base_geral.xlsx")
-
-
-base %>% 
-  view()
-
