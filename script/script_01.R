@@ -41,8 +41,6 @@ var_pc_pm <- function(data, var_base, por_mil = FALSE) {
         else 
           .data[[var_base]] / qt_pop
     ) %>%
-    rename(nome_mun = nome_mun.x) %>%
-    select(-nome_mun.y) %>%
     filter(!is.na(qt_pop)) %>%
     arrange(cod_mun) %>%
     select(-qt_pop)
@@ -95,7 +93,7 @@ esf_x1999_x2006 <- read.csv2("dados/dados_brutos/ESF 1999 a 2006.csv", fileEncod
 #   clean_names()
 
 esf_1999_2006 <- esf_x1999_x2006 %>%
-  select(-percent_cobertura, -mun6) %>% 
+  select(-percent_cobertura, -mun6, -esf_qualificadas, -esf_no_siab) %>% 
   filter(mes == 12) %>% 
   rename(
     cod_mun = codigo,
@@ -113,6 +111,8 @@ esf_1999_2006 <- esf_x1999_x2006 %>%
   ) %>% 
   arrange(cod_mun)
 
+
+esf_1999_2006 %>% count(ano)
 
 # calculando o grau de cobertura de esf
 
@@ -207,8 +207,6 @@ esf_1999_2006 <- esf_1999_2006 %>%
          qt_pop,
          competencia,
          teto_de_esf,
-         esf_qualificadas,
-         esf_no_siab,
          esf_implantada,
          uf_comp,
          grau_cob_esf
@@ -348,6 +346,7 @@ base_esf <-
             select(-c(mes,uf,competencia, teto_de_esf, uf_comp)) %>% 
             mutate(qt_equipe_sf = NA),
           esf_2007_2020 %>% 
+            filter(!(ano %in% 2007:2010)) %>% 
             select(-c(cobertura_70, vezes_consec, nu_competencia, nome_uf, sg_uf, cod_regiao, sg_regiao, nome_regiao)) %>% 
             mutate(esf_qualificadas = NA,
                    esf_no_siab = NA,
@@ -358,38 +357,13 @@ base_esf <-
 
 # POP --------------------------------------------------------------------------
 
-# tratamento dos dados de população de 2000 a 2020, selecionando somente dezembro
-
-qt_pop_2000_2006 <- esf_1999_2006 %>% 
-  filter(mes == "12", ano >= "2000" & ano <= "2006") %>% 
-  select(ano, cod_mun, nome_mun, qt_pop) %>% 
-  mutate(
-    ano = as.numeric(ano)
-  )
-
-qt_pop_2007_2020 <- esf_2007_2020 %>% 
-  filter(str_sub(nu_competencia, 5, 6) == "12") %>% 
-  select(ano, cod_mun, nome_mun, qt_pop) %>% 
-  mutate(
-    ano = as.numeric(ano)
-  )
-
-
-# juntando os dados de população
-
-qt_pop <- bind_rows(qt_pop_2000_2006, qt_pop_2007_2020) %>% 
-  arrange(cod_mun)
-
+qt_pop <- base_esf %>% select(ano, cod_mun, qt_pop)
 
 writexl::write_xlsx(qt_pop, "dados/dados_tratados/qt_pop.xlsx")
-
-qt_pop <- readxl::
-
-
 # calculando o porte dos municípios
 
 pop_porte_mun <- qt_pop %>% 
-  select(ano, cod_mun, nome_mun, qt_pop) %>% 
+  select(ano, cod_mun, qt_pop) %>% 
   mutate(
     porte_mun = case_when(
       qt_pop < 50000 ~ 1,
@@ -1266,13 +1240,10 @@ benef_priv_x2000_x2020 <- read.csv2("dados/dados_brutos/plsaudebenef_2000_2020.c
 # benef_priv_x2000_x2020 <- readxl::read_xlsx("dados/dados_brutos/plsaudebenef_2000_2020.xlsx")
 
 benef_priv_2000_2020 <- benef_priv_x2000_x2020 %>% 
-  slice(1:(n() - 8)) %>% 
-  separate(
-    municipio, 
-    into = c("cod_mun", "nome_mun"), 
-    sep = " ", 
-    extra = "merge"
-  ) %>% 
+  filter(!str_detect(municipio, "Município ignorado|Ignorado|Total")) %>% 
+  mutate(cod_mun = str_sub(municipio,1,6),
+         nome_mun = str_sub(municipio,8,str_length(municipio))) %>% 
+  select(-municipio) %>% 
   pivot_longer(
     cols = -c(cod_mun, nome_mun),
     names_to = "ano",
@@ -1284,15 +1255,14 @@ benef_priv_2000_2020 <- benef_priv_x2000_x2020 %>%
     cod_mun = str_sub(as.character(cod_mun), 1, 6),
     nome_mun = str_to_upper(nome_mun)
   ) %>% 
-  relocate(ano) %>% 
-  filter(cod_mun != "110000")
+  relocate(ano)
 
 
 # calculando beneficiários de plano privado per capita
 
 benef_priv <- var_pc_pm(benef_priv_2000_2020, "benef_plano_priv")
 
-
+benef_priv_2000_2020 %>% left_join(.,qt_pop) %>% group_by(ano) %>% summarise(across(where(is.double), sum)) %>% mutate(perc = benef_plano_priv/qt_pop) %>% view
 
 # ASPS -------------------------------------------------------------------------
 
