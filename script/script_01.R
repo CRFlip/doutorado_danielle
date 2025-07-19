@@ -570,11 +570,46 @@ urban_1991_2000_2010 <- urban_x1991_x2000_x2010 %>%
 
 urban_1991_2022 <- bind_rows(urban_1991_2000_2010, urban_2022)
 
+#Trocando os NA por 0, entendendo que valores vazios representam 0 na taxa de urbanização
+
+urban_1991_2022 <- urban_1991_2022 %>% mutate(tx_urban = if_else(is.na(tx_urban), 0, tx_urban))
 
 # interpolando para os anos faltantes
 
 urban <- interpolate_num(urban_1991_2022, "tx_urban", 1991:2022)
 
+urban_1991_2022 %>% complete(cod_mun, ano = full_seq(1991:2022, 1)) %>% 
+  group_by(cod_mun) %>% 
+  arrange(ano) %>% 
+  mutate(tx_urban = approx(x = ano, y = tx_urban, xout = ano, rule = 2, na.rm = )$y)
+
+
+teste <- urban_1991_2022 %>% filter(cod_mun %in% c("110007", "110008")) %>% complete(cod_mun, ano = full_seq(1991:2022, 1))
+
+teste$tx_urban %>% plot
+
+teste %>% group_by(cod_mun) %>% mutate(t = approx(ano,tx_urban, method = "linear")$y)
+
+approx(teste$ano, teste$tx_urban, xout = teste$ano, method = "linear")$y %>% plot
+
+plyr::
+
+interpolate_num <- function(data, var_name, year_range) {
+  data %>%
+    complete(cod_mun, ano = full_seq(year_range, 1)) %>%
+    group_by(cod_mun) %>%
+    arrange(ano) %>%
+    mutate(
+      nome_mun = first(na.omit(nome_mun)),
+      "{var_name}" := if (sum(!is.na(.data[[var_name]])) >= 2) {
+        approx(x = ano, y = .data[[var_name]], xout = ano, rule = 2)$y
+      } else {
+        .data[[var_name]]
+      }
+    ) %>%
+    ungroup() %>%
+    relocate(cod_mun, .after = ano)
+} 
 
 # carregamento dos dados para o Excel
 
